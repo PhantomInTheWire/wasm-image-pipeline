@@ -1,3 +1,3 @@
-Name            Version         Source          Installed
-golang          ______          ______          
-rust            ______          ______          
+golang 1.24.3
+nodejs 24.0.2
+rust 1.87.0

@@ -3,8 +3,6 @@ name = "filter"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-
 [lib]
 crate-type = ["cdylib"]
 
@@ -13,4 +11,3 @@ image = "0.24"
 
 [package.metadata.wasm]
 target = "wasm32-wasi"
-
