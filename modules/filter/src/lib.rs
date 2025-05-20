@@ -4,10 +4,8 @@ use std::io::{Cursor, Read, Write};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-/// WASM entry point for CLI usage - reads from stdin and writes to stdout
-/// This is the main entry point for the WASM module.
+/// WASM entry point for CLI usage, specifically WASAI/Wasmedge - reads from stdin and writes to stdout
 /// It reads image data from stdin, processes it, and writes the result to stdout.
-/// It is marked as `unsafe` because it interacts with raw pointers and external I/O.
 /// The name of this function is not supposed to be mangled, as it is called from foreign code.
 #[unsafe(no_mangle)]
 pub extern "C" fn process_stdin() {
@@ -77,7 +75,7 @@ pub extern "C" fn process_stdin() {
     };
 }
 
-/// WASM entrypoint: maps Rust errors into JS exceptions.
+/// WASM entrypoint(for use in browser or nodejs): maps Rust errors into JS exceptions.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn grayscale(input: &[u8]) -> Result<Vec<u8>, JsValue> {

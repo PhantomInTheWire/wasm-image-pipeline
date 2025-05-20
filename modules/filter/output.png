@@ -1,0 +1,2 @@
+[2025-05-21 02:05:52.447] [error] loading failed: invalid path, Code: 0x100
+[2025-05-21 02:05:52.448] [error]     File name: "/Users/ghost/wasm-image-pipeline/modules/filter/target/wasm32-wasi/release/filter.wasm"
