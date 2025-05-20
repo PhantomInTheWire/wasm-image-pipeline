@@ -12,3 +12,6 @@ wasm-bindgen = "0.2"
 
 [package.metadata.wasm]
 target = "wasm32-wasip1"
+
+[target.wasm32-wasip1]
+rustflags = ["-C", "target-feature=+simd128"]
