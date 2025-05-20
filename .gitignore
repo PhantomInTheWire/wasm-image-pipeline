@@ -1,0 +1,17 @@
+
+# Rust
+/target
+*.wasm
+
+# Go
+/bin
+/pkg
+
+# Shared data
+/shared/output
+/shared/tiles
+
+# Editor
+.vscode
+.idea
+
