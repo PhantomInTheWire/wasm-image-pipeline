@@ -10,39 +10,79 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-and-test:
+  setup-lint-build:
+    name: Setup, Lint, Build and Test
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-
+    
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         targets: wasm32-wasip1
-
-    - name: Install WasmEdge
-      run: |
-        curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- --version 0.13.5
-        echo "$HOME/.wasmedge/bin" >> $GITHUB_PATH
-
+        components: rustfmt, clippy
+    
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          modules/filter/target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: ${{ runner.os }}-cargo-
+    
     - name: Check formatting
-      run: cargo fmt --check
-
+      run: cargo fmt --check --manifest-path modules/filter/Cargo.toml
+    
+    - name: Run clippy
+      run: cargo clippy --manifest-path modules/filter/Cargo.toml -- -D warnings
+    
     - name: Build filter module for wasm32-wasip1 in release mode
       run: |
         pushd modules/filter
         cargo build --target wasm32-wasip1 --release
         popd
-
     - name: Run cargo tests for filter module
       run: |
         pushd modules/filter
         cargo test
         popd
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: wasm-modules
+        path: modules/filter/target/wasm32-wasip1/release/filter.wasm
 
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: setup-lint-build
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download wasm modules
+      uses: actions/download-artifact@v4
+      with:
+        name: wasm-modules
+        path: modules/filter/target/wasm32-wasip1/release/
+    
+    - name: Install WasmEdge
+      run: |
+        curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- --version 0.13.5
+        echo "$HOME/.wasmedge/bin" >> $GITHUB_PATH
+    
     - name: Test greyscale functionality using WasmEdge runtime
       run: |
         pushd modules/filter
         wasmedge target/wasm32-wasip1/release/filter.wasm process_stdin < test_assets/input.png > test_assets/output.png 2> debug.log
         popd
+    
+    - name: Upload test output
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-output
+        path: |
+          modules/filter/test_assets/output.png
+          modules/filter/debug.log
