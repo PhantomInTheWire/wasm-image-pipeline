@@ -46,7 +46,7 @@ jobs:
     - name: Run cargo tests for filter module
       run: |
         pushd modules/filter
-        cargo test
+        cargo test --target wasm32-wasip1 --release
         popd
     
     - name: Upload build artifacts

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 image = "0.25.6"
@@ -14,3 +14,4 @@ target = "wasm32-wasip1"
 
 [target.wasm32-wasip1]
 rustflags = ["-C", "target-feature=+simd128"]
+runner = "wasmedge"
