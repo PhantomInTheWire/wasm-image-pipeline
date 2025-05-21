@@ -1,10 +1,11 @@
-use image::{DynamicImage, ImageBuffer, Rgba, ImageFormat};
+use filter::{alloc, dealloc, grayscale};
+use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
 use std::io::Cursor;
-use filter::{grayscale, alloc, dealloc};
 
 fn create_sample_png() -> Vec<u8> {
-    let img: ImageBuffer<Rgba<u8>, _> =
-        ImageBuffer::from_fn(2, 2, |x, y| Rgba([(x * 100) as u8, (y * 100) as u8, 150, 255]));
+    let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_fn(2, 2, |x, y| {
+        Rgba([(x * 100) as u8, (y * 100) as u8, 150, 255])
+    });
     let mut buf = Vec::new();
     DynamicImage::ImageRgba8(img)
         .write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
@@ -35,7 +36,8 @@ fn test_invalid_input_grayscale() {
 fn test_grayscale_round_trip() {
     let img = DynamicImage::new_rgb8(2, 2);
     let mut png = Vec::new();
-    img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
+    img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+        .unwrap();
 
     let mut out = [0u32; 2];
     let len = unsafe { grayscale(png.as_ptr(), png.len(), out.as_mut_ptr()) };
@@ -60,7 +62,8 @@ fn test_grayscale_conversion() {
 
     let ptr = out[0] as usize;
     let len_usize = out[1] as usize;
-    let slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len_usize) };    let gray = image::load_from_memory(slice).unwrap();
+    let slice = unsafe { std::slice::from_raw_parts(ptr as *const u8, len_usize) };
+    let gray = image::load_from_memory(slice).unwrap();
     assert_eq!(gray.color(), image::ColorType::L8);
 
     unsafe { dealloc(ptr as *mut u8, len_usize) };
