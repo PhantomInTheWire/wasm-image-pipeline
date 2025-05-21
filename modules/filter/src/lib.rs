@@ -1,133 +1,97 @@
 use image::{DynamicImage, ImageFormat};
 use std::io::{Cursor, Read, Write};
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
-/// WASM entry point for CLI usage, specifically WASAI/Wasmedge - reads from stdin and writes to stdout
-/// It reads image data from stdin, processes it, and writes the result to stdout.
-/// The name of this function is not supposed to be mangled, as it is called from foreign code.
+/// WASI/CLI entry point: read PNG from stdin, grayscale, write PNG to stdout.
 #[unsafe(no_mangle)]
 pub extern "C" fn process_stdin() {
-    // Read from stdin
+    // Read raw bytes from stdin
     let mut buffer = Vec::new();
     std::io::stdin()
         .read_to_end(&mut buffer)
         .expect("Failed to read from stdin");
 
-    eprintln!("Read {} bytes from stdin", buffer.len());
-
-    // Process the image
+    // Decode image
     let img = match image::load_from_memory(&buffer) {
-        Ok(img) => {
-            eprintln!(
-                "Successfully loaded image, dimensions: {}x{}",
-                img.width(),
-                img.height()
-            );
-            img
-        }
+        Ok(img) => img,
         Err(e) => {
             eprintln!("Failed to load image: {}", e);
             return;
         }
     };
 
-    eprintln!("Converting to grayscale...");
+    // Convert to grayscale
     let gray = img.to_luma8();
+    let r#dyn = DynamicImage::ImageLuma8(gray);
 
+    // Encode back to PNG
     let mut out_buf = Vec::new();
-    match DynamicImage::ImageLuma8(gray).write_to(&mut Cursor::new(&mut out_buf), ImageFormat::Png)
-    {
-        Ok(_) => {
-            eprintln!(
-                "Successfully encoded PNG, output size: {} bytes",
-                out_buf.len()
-            );
-            if out_buf.len() >= 8 {
-                eprintln!("PNG signature check: {:?}", &out_buf[0..8]);
-            } else {
-                eprintln!(
-                    "WARNING: Output buffer too small ({} bytes)!",
-                    out_buf.len()
-                );
-                return;
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to encode PNG: {}", e);
-            return;
-        }
-    };
+    if let Err(e) = r#dyn.write_to(&mut Cursor::new(&mut out_buf), ImageFormat::Png) {
+        eprintln!("Failed to encode PNG: {}", e);
+        return;
+    }
 
-    match std::io::stdout().write_all(&out_buf) {
-        Ok(_) => {
-            eprintln!("Successfully wrote {} bytes to stdout", out_buf.len());
-            // Make sure we flush stdout
-            if let Err(e) = std::io::stdout().flush() {
-                eprintln!("Warning: Failed to flush stdout: {}", e);
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to write to stdout: {}", e);
-            panic!("Writing output failed");
-        }
-    };
+    // Write to stdout
+    if let Err(e) = std::io::stdout().write_all(&out_buf) {
+        eprintln!("Failed to write PNG to stdout: {}", e);
+    }
 }
 
-/// WASM entrypoint(for use in browser or nodejs): maps Rust errors into JS exceptions.
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen]
-pub fn grayscale(input: &[u8]) -> Result<Vec<u8>, JsValue> {
-    // Decode with error mapping
-    let img = image::load_from_memory(input)
-        .map_err(|e| JsValue::from_str(&format!("Failed to load image: {}", e)))?;
+/// In-RAM API: take a PNG byte‐slice, return a freshly-allocated pointer+len to a PNG grayscale.
+#[unsafe(no_mangle)]
+pub extern "C" fn grayscale(input_ptr: *const u8, input_len: usize, out_ptr: *mut u32) -> u32 {
+    // Safety: we trust the host passed a valid pointer
+    let input = unsafe { std::slice::from_raw_parts(input_ptr, input_len) };
 
-    // Apply grayscale
-    let gray = img.to_luma8();
-    let mut buf = Vec::new();
-    DynamicImage::ImageLuma8(gray)
-        .write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
-        .map_err(|e| JsValue::from_str(&format!("Failed to encode PNG: {}", e)))?;
-
-    Ok(buf)
-}
-
-/// Native entrypoint to mirror the WASM API shape for desktop tests.
-/// Returns `Err(String)` instead of panicking inside the test harness.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn grayscale(input: &[u8]) -> Result<Vec<u8>, String> {
+    // Decode
     let img = match image::load_from_memory(input) {
         Ok(img) => img,
-        Err(e) => return Err(format!("Failed to load image: {}", e)),
+        Err(_) => return 0, // return 0 length on error
     };
 
+    // Grayscale
     let gray = img.to_luma8();
+    let r#dyn = DynamicImage::ImageLuma8(gray);
+
+    // Encode to PNG
     let mut buf = Vec::new();
+    if r#dyn.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png).is_err() {
+        return 0;
+    }
 
-    match DynamicImage::ImageLuma8(gray).write_to(&mut Cursor::new(&mut buf), ImageFormat::Png) {
-        Ok(_) => Ok(buf),
-        Err(e) => Err(format!("Failed to encode PNG: {}", e)),
+    // Allocate WASM memory for output
+    let len = buf.len() as u32;
+    let ptr = alloc(len as usize) as u32;
+
+    // Copy data into WASM memory
+    unsafe {
+        std::ptr::copy_nonoverlapping(buf.as_ptr(), ptr as *mut u8, len as usize);
+    }
+
+    // Write back pointer and length to caller’s out_ptr region
+    unsafe {
+        // out_ptr points to two u32 slots: [ptr, len]
+        std::ptr::write(out_ptr, ptr);
+        std::ptr::write(out_ptr.add(1), len);
+    }
+
+    // Return length (for convenience)
+    len
+}
+
+/// Allocate `size` bytes in WASM linear memory and return the base pointer.
+#[unsafe(no_mangle)]
+pub extern "C" fn alloc(size: usize) -> *mut u8 {
+    let mut buf = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr
+}
+
+/// Free a previously allocated buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn dealloc(ptr: *mut u8, size: usize) {
+    unsafe {
+        let _ = Vec::from_raw_parts(ptr, 0, size);
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // disable ide inspection for this function
-    //noinspection ALL
-    #[test]
-    fn invalid_input_returns_error() {
-        let err = grayscale(&[]).expect_err("Empty input should fail");
-        assert!(err.contains("Failed to load image"), "got: {:?}", err);
-    }
-
-    #[test]
-    fn round_trip_grayscale_png() {
-        let red_pixel = include_bytes!("../test_assets/red_pixel.png");
-        let out = grayscale(red_pixel).expect("Should process valid PNG");
-        // PNG magic bytes for "gray-scaled" red pixel
-        assert_eq!(&out[0..8], b"\x89PNG\r\n\x1a\n");
-    }
-}

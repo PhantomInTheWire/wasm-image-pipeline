@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
-	"sync"
 
 	"github.com/disintegration/imaging"
+	"github.com/second-state/WasmEdge-go/wasmedge"
 )
 
 var (
@@ -25,15 +25,15 @@ var (
 )
 
 func getEnv(key, fallback string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
 	return fallback
 }
 
 func getEnvInt(key string, fallback int) int {
-	if val := os.Getenv(key); val != "" {
-		if i, err := strconv.Atoi(val); err == nil {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
 			return i
 		}
 	}
@@ -46,128 +46,186 @@ func checkErr(err error) {
 	}
 }
 
-// runWasmFilterInMemory processes an image tile in memory using the WASM filter.
-func runWasmFilterInMemory(tile image.Image) (image.Image, error) {
+// init loads WasmEdge plugins once
+func init() {
+	wasmedge.SetLogErrorLevel()
+	wasmedge.LoadPluginDefaultPaths()
+}
+
+func newVM(wasmPath string) *wasmedge.VM {
+	conf := wasmedge.NewConfigure(wasmedge.WASI)
+	vm := wasmedge.NewVMWithConfig(conf)
+	checkErr(vm.LoadWasmFile(wasmPath))
+	checkErr(vm.Validate())
+	checkErr(vm.Instantiate())
+	return vm
+}
+
+func runTile(vm *wasmedge.VM, tile image.Image) (image.Image, error) {
 	var inBuf bytes.Buffer
-	err := imaging.Encode(&inBuf, tile, imaging.PNG)
+	if err := png.Encode(&inBuf, tile); err != nil {
+		return nil, fmt.Errorf("encode: %w", err)
+	}
+	inBytes := inBuf.Bytes()
+	inLen := int32(len(inBytes))
+
+	allocRes, err := vm.Execute("alloc", inLen)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode tile: %w", err)
+		return nil, fmt.Errorf("alloc input: %w", err)
 	}
+	inPtr := allocRes[0].(int32)
 
-	cmd := exec.Command("wasmedge", wasmFilter, "process_stdin")
-	cmd.Stdin = &inBuf
-
-	var outBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("wasm filter failed: %w", err)
-	}
-
-	processed, err := imaging.Decode(&outBuf)
+	mod := vm.GetActiveModule()
+	mem := mod.FindMemory("memory")
+	inData, err := mem.GetData(uint(inPtr), uint(inLen))
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode output tile: %w", err)
+		return nil, fmt.Errorf("mem input: %w", err)
 	}
-	return processed, nil
+	copy(inData, inBytes)
+
+	outParamsRes, err := vm.Execute("alloc", int32(8))
+	if err != nil {
+		return nil, fmt.Errorf("alloc params: %w", err)
+	}
+	outPtrParams := outParamsRes[0].(int32)
+
+	lenRes, err := vm.Execute("grayscale", inPtr, inLen, outPtrParams)
+	if err != nil {
+		return nil, fmt.Errorf("grayscale: %w", err)
+	}
+	resultLen := lenRes[0].(int32)
+	if resultLen == 0 {
+		return nil, fmt.Errorf("zero length output")
+	}
+
+	paramBytes, err := mem.GetData(uint(outPtrParams), 8)
+	if err != nil {
+		return nil, fmt.Errorf("mem params: %w", err)
+	}
+	outPtr := int32(paramBytes[0]) | int32(paramBytes[1])<<8 | int32(paramBytes[2])<<16 | int32(paramBytes[3])<<24
+	outLen := int32(paramBytes[4]) | int32(paramBytes[5])<<8 | int32(paramBytes[6])<<16 | int32(paramBytes[7])<<24
+
+	outData, err := mem.GetData(uint(outPtr), uint(outLen))
+	if err != nil {
+		return nil, fmt.Errorf("mem output: %w", err)
+	}
+	outBytes := make([]byte, outLen)
+	copy(outBytes, outData)
+
+	img, err := png.Decode(bytes.NewReader(outBytes))
+	if err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+
+	vm.Execute("dealloc", inPtr, inLen)
+	vm.Execute("dealloc", outPtr, outLen)
+	vm.Execute("dealloc", outPtrParams, int32(8))
+
+	return img, nil
 }
 
 func main() {
 	checkErr(os.RemoveAll(outputDir))
 	checkErr(os.MkdirAll(outputDir, 0o755))
 
-	var inputFiles []string
-	checkErr(filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+	var inputs []string
+	checkErr(filepath.Walk(inputDir, func(p string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() && filepath.Ext(path) == ".png" {
-			inputFiles = append(inputFiles, path)
+		if !fi.IsDir() && filepath.Ext(p) == ".png" {
+			inputs = append(inputs, p)
 		}
 		return nil
 	}))
-
-	if len(inputFiles) == 0 {
-		fmt.Printf("No PNG files found in %s\n", inputDir)
+	if len(inputs) == 0 {
+		fmt.Printf("No PNGs in %s\n", inputDir)
 		return
 	}
 
-	fmt.Printf("Found %d PNG files. Processing...\n", len(inputFiles))
-
-	for _, inputFile := range inputFiles {
-		fmt.Printf("\nProcessing %s...\n", inputFile)
-		srcImg, err := imaging.Open(inputFile)
-		checkErr(err)
-
-		bounds := srcImg.Bounds()
-		cols := (bounds.Dx() + tileSize - 1) / tileSize
-		rows := (bounds.Dy() + tileSize - 1) / tileSize
-
-		tiles := make([][]image.Image, rows)
-		for i := range tiles {
-			tiles[i] = make([]image.Image, cols)
+	// Create VM pool once
+	vms := make([]*wasmedge.VM, maxWorkers)
+	for i := 0; i < maxWorkers; i++ {
+		vms[i] = newVM(wasmFilter)
+	}
+	defer func() {
+		for _, vm := range vms {
+			vm.Release()
 		}
+	}()
 
-		type job struct {
-			x, y  int
-			tile  image.Image
-		}
-		type result struct {
-			x, y int
-			img  image.Image
-			err  error
-		}
+	fmt.Printf("Found %d images, processing with %d workers\n", len(inputs), maxWorkers)
 
-		jobs := make(chan job)
-		results := make(chan result)
+	for _, file := range inputs {
+		processImage(file, vms)
+	}
 
-		var wg sync.WaitGroup
-		for i := 0; i < maxWorkers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for j := range jobs {
-					processed, err := runWasmFilterInMemory(j.tile)
-					results <- result{j.x, j.y, processed, err}
-				}
-			}()
-		}
+	fmt.Println("Done")
+}
 
-		go func() {
-			for y := 0; y < rows; y++ {
-				for x := 0; x < cols; x++ {
-					x0, y0 := x*tileSize, y*tileSize
-					x1 := min(x0+tileSize, bounds.Dx())
-					y1 := min(y0+tileSize, bounds.Dy())
-					tile := imaging.Crop(srcImg, image.Rect(x0, y0, x1, y1))
-					jobs <- job{x, y, tile}
-				}
+func processImage(file string, vms []*wasmedge.VM) {
+	fmt.Printf("→ %s\n", file)
+	src, err := imaging.Open(file)
+	checkErr(err)
+
+	b := src.Bounds()
+	cols := (b.Dx()+tileSize-1)/tileSize
+	rows := (b.Dy()+tileSize-1)/tileSize
+
+	type task struct { x, y int; tile image.Image }
+	type result struct { x, y int; img image.Image; err error }
+
+	tasks := make(chan task)
+	results := make(chan result)
+
+	// launch workers
+	for i, vm := range vms {
+		go func(vm *wasmedge.VM) {
+			for t := range tasks {
+				img, err := runTile(vm, t.tile)
+				results <- result{t.x, t.y, img, err}
 			}
-			close(jobs)
-		}()
+		}(vm)
+		_ = i
+	}
 
-		go func() {
-			wg.Wait()
-			close(results)
-		}()
-
-		for res := range results {
-			if res.err != nil {
-				log.Fatalf("Tile (%d,%d) failed: %v", res.x, res.y, res.err)
-			}
-			tiles[res.y][res.x] = res.img
-		}
-
-		// Stitch final image
-		final := imaging.New(bounds.Dx(), bounds.Dy(), color.NRGBA{0, 0, 0, 0})
+	// dispatch
+	go func() {
 		for y := 0; y < rows; y++ {
 			for x := 0; x < cols; x++ {
-				final = imaging.Paste(final, tiles[y][x], image.Pt(x*tileSize, y*tileSize))
+				t := imaging.Crop(src, image.Rect(x*tileSize, y*tileSize,
+					x*tileSize+tileSize, y*tileSize+tileSize).Intersect(b))
+				tasks <- task{x, y, t}
 			}
 		}
+		close(tasks)
+	}()
 
-		outName := filepath.Join(outputDir, filepath.Base(inputFile[:len(inputFile)-len(filepath.Ext(inputFile))]+"_final.png"))
-		checkErr(imaging.Save(final, outName))
-		fmt.Printf("Saved final image: %s\n", outName)
+	tiles := make([][]image.Image, rows)
+	for i := range tiles {
+		tiles[i] = make([]image.Image, cols)
 	}
-	fmt.Println("\nAll input files processed.")
+
+	// collect
+	for i := 0; i < rows*cols; i++ {
+		res := <-results
+		if res.err != nil {
+			log.Fatalf("tile %d,%d error: %v", res.x, res.y, res.err)
+		}
+		tiles[res.y][res.x] = res.img
+	}
+
+	// stitch
+	final := imaging.New(b.Dx(), b.Dy(), color.NRGBA{0, 0, 0, 0})
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
+			final = imaging.Paste(final, tiles[y][x], image.Pt(x*tileSize, y*tileSize))
+		}
+	}
+
+	outPath := filepath.Join(outputDir,
+		filepath.Base(file[:len(file)-len(filepath.Ext(file))])+"_final.png",
+	)
+	checkErr(imaging.Save(final, outPath))
+	fmt.Printf("Saved %s\n", outPath)
 }
