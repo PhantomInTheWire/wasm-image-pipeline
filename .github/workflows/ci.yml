@@ -43,10 +43,6 @@ jobs:
         curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash -s -- --version 0.13.5
         echo "$HOME/.wasmedge/bin" >> $GITHUB_PATH
 
-    - name: Show .cargo config (debug)
-      run: cat .cargo/config.toml
-
-    
     - name: Build filter module for wasm32-wasip1 in release mode
       run: |
         pushd modules/filter
