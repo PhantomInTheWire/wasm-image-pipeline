@@ -2,6 +2,11 @@ use image::{DynamicImage, ImageFormat};
 use std::io::{Cursor, Read, Write};
 
 /// WASI/CLI entry point: read PNG from stdin, grayscale, write PNG to stdout.
+/// Processes a PNG image from stdin, converts it to grayscale, and writes the result to stdout.
+///
+/// # Safety
+///
+/// This function is unsafe because it directly interacts with the system's standard input and output.
 #[unsafe(no_mangle)]
 pub extern "C" fn process_stdin() {
     // Read raw bytes from stdin
@@ -37,6 +42,11 @@ pub extern "C" fn process_stdin() {
 }
 
 /// In-RAM API: take a PNG byte‐slice, return a freshly-allocated pointer+len to a PNG grayscale.
+///
+/// # Safety
+///
+/// The `input_ptr` must point to a valid PNG byte slice of length `input_len`.
+/// The `out_ptr` must point to a valid memory location with enough space to write two `u32` values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn grayscale(
     input_ptr: *const u8,
@@ -86,6 +96,10 @@ pub unsafe extern "C" fn grayscale(
 }
 
 /// Allocate `size` bytes in WASM linear memory and return the base pointer.
+///
+/// # Safety
+///
+/// This function is unsafe because it directly interacts with WASM linear memory.
 #[unsafe(no_mangle)]
 pub extern "C" fn alloc(size: usize) -> *mut u8 {
     let mut buf = Vec::with_capacity(size);
@@ -95,6 +109,11 @@ pub extern "C" fn alloc(size: usize) -> *mut u8 {
 }
 
 /// Free a previously allocated buffer.
+///
+/// # Safety
+///
+/// The `ptr` must point to a valid memory address that was previously allocated by `alloc`.
+/// The `size` must match the size that was used when `alloc` was called.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dealloc(ptr: *mut u8, size: usize) {
     unsafe {
