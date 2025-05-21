@@ -10,6 +10,8 @@
 # Shared data
 /shared/output
 /shared/tiles
+/shared/split
+/shared/input
 
 # Editor
 .vscode

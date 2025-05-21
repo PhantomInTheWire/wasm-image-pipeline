@@ -18,11 +18,10 @@ import (
 var (
 	tileSize      = getEnvInt("TILE_SIZE", 256)
 	sharedDir     = getEnv("SHARED_DIR", "../../shared")
-	tilesDir      = filepath.Join(sharedDir, "tiles")
-	outputDir     = filepath.Join(sharedDir, "output")
-	inputFilename = filepath.Join(sharedDir, "input", "input.png")
+	tilesDir      = filepath.Join(sharedDir, "split", "original") // Base path for original split tiles
+	outputDir     = filepath.Join(sharedDir, "split", "processed") // Base path for processed split tiles
+	inputDir      = filepath.Join(sharedDir, "input") // Directory containing input images
 	wasmFilter    = filepath.Join(sharedDir, "filter.wasm")
-	finalImage    = filepath.Join(sharedDir, "output", "final.png")
 	maxWorkers    = getEnvInt("MAX_WORKERS", 8)
 )
 
@@ -74,66 +73,109 @@ func runWasmFilter(inPath, outPath string) {
 }
 
 func main() {
-	for _, dir := range []string{tilesDir, outputDir} {
-		if err := os.RemoveAll(dir); err != nil {
-			log.Fatal(err)
+	// Clean and create base directories
+	checkErr(os.RemoveAll(filepath.Join(sharedDir, "split")))
+	checkErr(os.RemoveAll(filepath.Join(sharedDir, "output")))
+	checkErr(os.MkdirAll(filepath.Join(sharedDir, "split", "original"), 0o755))
+	checkErr(os.MkdirAll(filepath.Join(sharedDir, "split", "processed"), 0o755))
+	checkErr(os.MkdirAll(filepath.Join(sharedDir, "output"), 0o755))
+
+	var inputFiles []string
+	checkErr(filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
-		checkErr(os.MkdirAll(dir, 0o755))
-	}
-
-	srcImg, err := imaging.Open(inputFilename)
-	checkErr(err)
-	bounds := srcImg.Bounds()
-	cols := (bounds.Dx() + tileSize - 1) / tileSize
-	rows := (bounds.Dy() + tileSize - 1) / tileSize
-
-	fmt.Printf("Splitting %dx%d image into %dx%d tiles of %dpx\n",
-		bounds.Dx(), bounds.Dy(), cols, rows, tileSize)
-
-	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
-			x0, y0 := x*tileSize, y*tileSize
-			x1 := min(x0+tileSize, bounds.Dx())
-			y1 := min(y0+tileSize, bounds.Dy())
-			tile := imaging.Crop(srcImg, image.Rect(x0, y0, x1, y1))
-			tilePath := fmt.Sprintf("%s/tile_%d_%d.png", tilesDir, x, y)
-			checkErr(imaging.Save(tile, tilePath))
+		if !info.IsDir() && filepath.Ext(path) == ".png" {
+			inputFiles = append(inputFiles, path)
 		}
+		return nil
+	}))
+
+	if len(inputFiles) == 0 {
+		fmt.Printf("No PNG files found in %s\n", inputDir)
+		return
 	}
 
-	files, err := filepath.Glob(filepath.Join(tilesDir, "*.png"))
-	checkErr(err)
+	fmt.Printf("Found %d PNG files in %s. Processing...\n", len(inputFiles), inputDir)
 
-	fmt.Printf("Processing %d tiles with WASM filter (max concurrency: %d)\n", len(files), maxWorkers)
+	for _, inputFilename := range inputFiles {
+		fmt.Printf("\nProcessing %s...\n", inputFilename)
 
-	sem := make(chan struct{}, maxWorkers)
-	var wg sync.WaitGroup
+		// Determine paths for this specific input file
+		relPath, err := filepath.Rel(inputDir, inputFilename)
+		checkErr(err)
+		baseName := filepath.Base(inputFilename)
+		baseNameWithoutExt := baseName[:len(baseName)-len(filepath.Ext(baseName))]
 
-	for _, inPath := range files {
-		wg.Add(1)
-		go func(inPath string) {
-			sem <- struct{}{} // acquire
-			defer func() {
-				<-sem // release
-				wg.Done()
-			}()
+		currentTilesDir := filepath.Join(tilesDir, filepath.Dir(relPath), baseNameWithoutExt)
+		currentOutputDir := filepath.Join(outputDir, filepath.Dir(relPath), baseNameWithoutExt)
+		currentFinalImage := filepath.Join(sharedDir, "output", baseNameWithoutExt+"_final.png")
 
-			outPath := filepath.Join(outputDir, filepath.Base(inPath))
-			runWasmFilter(inPath, outPath)
-		}(inPath)
-	}
-	wg.Wait()
+		// Clean and create directories for this input file
+		checkErr(os.MkdirAll(currentTilesDir, 0o755))
+		checkErr(os.MkdirAll(currentOutputDir, 0o755))
 
-	final := imaging.New(bounds.Dx(), bounds.Dy(), color.NRGBA{0, 0, 0, 0})
-	for y := 0; y < rows; y++ {
-		for x := 0; x < cols; x++ {
-			tilePath := fmt.Sprintf("%s/tile_%d_%d.png", outputDir, x, y)
-			tile, err := imaging.Open(tilePath)
-			checkErr(err)
-			final = imaging.Paste(final, tile, image.Pt(x*tileSize, y*tileSize))
+		srcImg, err := imaging.Open(inputFilename)
+		checkErr(err)
+		bounds := srcImg.Bounds()
+		cols := (bounds.Dx() + tileSize - 1) / tileSize
+		rows := (bounds.Dy() + tileSize - 1) / tileSize
+
+		fmt.Printf("Splitting %dx%d image into %dx%d tiles of %dpx\n",
+			bounds.Dx(), bounds.Dy(), cols, rows, tileSize)
+
+		for y := 0; y < rows; y++ {
+			for x := 0; x < cols; x++ {
+				x0, y0 := x*tileSize, y*tileSize
+				x1 := min(x0+tileSize, bounds.Dx())
+				y1 := min(y0+tileSize, bounds.Dy())
+				tile := imaging.Crop(srcImg, image.Rect(x0, y0, x1, y1))
+				// Use currentTilesDir and new naming
+				tilePath := fmt.Sprintf("%s/part_%d_%d.png", currentTilesDir, x, y)
+				checkErr(imaging.Save(tile, tilePath))
+			}
 		}
-	}
-	checkErr(imaging.Save(final, finalImage))
-	fmt.Printf("Done! Final image written to %s\n", finalImage)
 
+		// Find tiles in the current original split directory
+		files, err := filepath.Glob(filepath.Join(currentTilesDir, "*.png"))
+		checkErr(err)
+
+		fmt.Printf("Processing %d tiles with WASM filter (max concurrency: %d)\n", len(files), maxWorkers)
+
+		sem := make(chan struct{}, maxWorkers)
+		var wg sync.WaitGroup
+
+		for _, inPath := range files {
+			wg.Add(1)
+			go func(inPath string) {
+				sem <- struct{}{} // acquire
+				defer func() {
+					<-sem // release
+					wg.Done()
+				}()
+
+				// Use currentOutputDir and new naming
+				outPath := filepath.Join(currentOutputDir, filepath.Base(inPath))
+				runWasmFilter(inPath, outPath)
+			}(inPath)
+		}
+		wg.Wait()
+
+		fmt.Printf("Stitching processed tiles for %s...\n", inputFilename)
+		final := imaging.New(bounds.Dx(), bounds.Dy(), color.NRGBA{0, 0, 0, 0})
+		for y := 0; y < rows; y++ {
+			for x := 0; x < cols; x++ {
+				// Use currentOutputDir and new naming
+				tilePath := fmt.Sprintf("%s/part_%d_%d.png", currentOutputDir, x, y)
+				tile, err := imaging.Open(tilePath)
+				checkErr(err)
+				final = imaging.Paste(final, tile, image.Pt(x*tileSize, y*tileSize))
+			}
+		}
+		// Save final image to shared/output with new naming
+		checkErr(imaging.Save(final, currentFinalImage))
+		fmt.Printf("Done processing %s. Final image written to %s\n", inputFilename, currentFinalImage)
+	}
+
+	fmt.Println("\nAll input files processed.")
 }
