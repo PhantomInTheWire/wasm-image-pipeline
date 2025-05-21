@@ -38,7 +38,11 @@ pub extern "C" fn process_stdin() {
 
 /// In-RAM API: take a PNG byte‐slice, return a freshly-allocated pointer+len to a PNG grayscale.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn grayscale(input_ptr: *const u8, input_len: usize, out_ptr: *mut u32) -> u32 {
+pub unsafe extern "C" fn grayscale(
+    input_ptr: *const u8,
+    input_len: usize,
+    out_ptr: *mut u32,
+) -> u32 {
     // Safety: we trust the host passed a valid pointer
     let input = unsafe { std::slice::from_raw_parts(input_ptr, input_len) };
 
