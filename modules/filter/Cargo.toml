@@ -8,7 +8,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 image = "0.25.6"
-wasm-bindgen = "0.2"
 
 [package.metadata.wasm]
 target = "wasm32-wasip1"
