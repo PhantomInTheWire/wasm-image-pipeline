@@ -1,0 +1,6 @@
+Read 11913 bytes from stdin
+Successfully loaded image, dimensions: 265x314
+Converting to grayscale...
+Successfully encoded PNG, output size: 18128 bytes
+PNG signature check: [137, 80, 78, 71, 13, 10, 26, 10]
+Successfully wrote 18128 bytes to stdout
