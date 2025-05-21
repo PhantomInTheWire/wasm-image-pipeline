@@ -169,11 +169,18 @@ func processImage(file string, vms []*wasmedge.VM) {
 	checkErr(err)
 
 	b := src.Bounds()
-	cols := (b.Dx()+tileSize-1)/tileSize
-	rows := (b.Dy()+tileSize-1)/tileSize
+	cols := (b.Dx() + tileSize - 1) / tileSize
+	rows := (b.Dy() + tileSize - 1) / tileSize
 
-	type task struct { x, y int; tile image.Image }
-	type result struct { x, y int; img image.Image; err error }
+	type task struct {
+		x, y int
+		tile image.Image
+	}
+	type result struct {
+		x, y int
+		img  image.Image
+		err  error
+	}
 
 	tasks := make(chan task)
 	results := make(chan result)

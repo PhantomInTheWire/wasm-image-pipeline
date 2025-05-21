@@ -54,7 +54,10 @@ pub extern "C" fn grayscale(input_ptr: *const u8, input_len: usize, out_ptr: *mu
 
     // Encode to PNG
     let mut buf = Vec::new();
-    if r#dyn.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png).is_err() {
+    if r#dyn
+        .write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
+        .is_err()
+    {
         return 0;
     }
 
@@ -94,4 +97,3 @@ pub extern "C" fn dealloc(ptr: *mut u8, size: usize) {
         let _ = Vec::from_raw_parts(ptr, 0, size);
     }
 }
-
