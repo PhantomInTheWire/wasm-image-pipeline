@@ -70,8 +70,8 @@ Unzip the dataset into the `input/` directory.
 | Naive                            | Multi-threaded (8 workers) | 9.8        | Parallelized disk-based processing (\~3× speedup) |
 | Optimized (in-memory)            | Single-threaded            | 29.4       | Reduced I/O, all tiles kept in memory             |
 | Optimized (in-memory)            | Multi-threaded (8 workers) | 8.7        | Faster parallel in-memory WASM tile filtering     |
-| Super Optimized (zero-copy WASM) | Single-threaded            | 24.73      | Raw pointer WASM, no serialization overhead       |
-| Super Optimized (zero-copy WASM) | Multi-threaded (8 workers) | 7.72       | Best performance: minimal I/O + zero-copy WASM    |
+| Super Optimized (zero-copy, raw pointers) | Single-threaded            | 24.73      | Raw pointer WASM, no serialization overhead       |
+| Super Optimized (zero-copy, raw pointers) | Multi-threaded (8 workers) | 7.72       | Best performance: minimal I/O + zero-copy WASM    |
 
 🧪 All benchmarks were run on an M3 MacBook Air with 16GB RAM.
 
