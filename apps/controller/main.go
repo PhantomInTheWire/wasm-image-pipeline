@@ -58,16 +58,21 @@ func main() {
 		Dir:       outDir,
 	}
 
+	wasmBucket := "http://minio.default.svc:9000/wasm-modules"
+	tilesBucket := "http://minio.default.svc:9000/tiles-bucket"
+
 	if err := storage.UploadTiles(minioCfg); err != nil {
 		log.Fatalf("failed to upload tiles to MinIO: %v", err)
 	}
 	for _, tile := range tiles {
-    jobName := sanitizeJobName(tile)
-    err := kube.CreateJobForTile(jobName, tile, "default", "http://minio.default.svc:9000/tiles-bucket")
-    if err != nil {
-        log.Printf("Failed to create job for tile %s: %v", tile, err)
-    } else {
-        log.Printf("Job created for tile: %s", tile)
-    }
-}
+		jobName := sanitizeJobName(tile)
+		if err := kube.CreateJobForTile(
+			jobName, tile, "default",
+			tilesBucket,  // where raw + processed tiles live
+			wasmBucket,   // where filter.wasm lives
+		); err != nil {
+			log.Printf("error creating job: %v", err)
+		}
+	}
+
 }
