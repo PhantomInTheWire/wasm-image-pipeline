@@ -1,31 +1,78 @@
-Distributed Image-processing Pipeline
+# 📸 Distributed Image-processing Pipeline
 
-# Dataset Credit
+## 🧾 Summary
 
-This project uses the kodak image dataset for testing(24 The Kodak dataset is a collection of 24 uncompressed 768×512 24-bit RGB images widely used for benchmarking image compression and quality enhancement algorithms.)
+The project focuses on benchmarking different strategies for distributed image processing using Go and WebAssembly (WASM). The pipeline processes batches of images by splitting each into tiles, applying filters (via WASM modules), and reassembling them.
 
-https://www.kaggle.com/datasets/sherylmehta/kodak-dataset
+We compare naive disk-based approaches with increasingly optimized in-memory implementations. Performance gains are achieved by reducing disk I/O and minimizing overhead from WASM interop.
 
-you can put the zip file in the input dir to do benchmarks using the go cli
+---
 
-```
-curl -L -o ~/Downloads/kodak-dataset.zip\
+## ⚙️ How It Works
+
+Each version of the pipeline follows this general structure:
+
+1. Load an image (or a set of images).
+2. Split each image into tiles.
+3. Apply a WASM-based filter to each tile.
+4. Reassemble the tiles into a final image.
+
+### 🧱 Naive Implementation
+
+* Written in Go.
+* Uses the standard image and io packages.
+* Splits and saves tiles to disk.
+* Loads each tile back into memory for WASM processing.
+* Saves the processed tile again, and reassembles from disk.
+
+➡️ Major bottleneck: Excessive disk reads/writes.
+
+### 🧠 Optimized Implementation (In-Memory)
+
+* Still in Go.
+* Tiles are created and kept in memory (slices of `image.Image`).
+* Processed tiles are passed through pipes directly into WASM and collected via stdout.
+* Only one read/write to disk: once for loading, once for final output.
+
+➡️ Benefit: Avoids intermediate disk I/O.
+
+### ⚡ Super Optimized Implementation (Zero-Copy + Raw Pointers)
+
+* Written using Go for orchestration, but uses Rust-compiled WASM modules.
+* WASM filter module uses raw pointers and manual memory management for direct buffer access.
+* Avoids wasm-bindgen and serialization overhead.
+* Tile data is passed directly using WASI stdin/stdout streams in binary form.
+
+➡️ Result: Best performance due to minimal syscall and memory copy overhead.
+
+---
+
+## 📚 Dataset Credit
+
+This project uses the [Kodak image dataset](https://www.kaggle.com/datasets/sherylmehta/kodak-dataset), a set of 24 uncompressed 768×512 RGB images widely used for evaluating compression algorithms.
+
+To benchmark using the Go CLI:
+
+```bash
+curl -L -o ~/Downloads/kodak-dataset.zip \
   https://www.kaggle.com/api/v1/datasets/download/sherylmehta/kodak-dataset
 ```
 
+Unzip the dataset into the `input/` directory.
 
-The naive implementation writes and reads from disk multiple times to split images and reassemble them
-Naive Implementation(local bare metal) Single Threaded 30.3 sec
-Naive Implementation(local bare metal) Multi Threaded(8 workers) 9.8 sec (~3x speedup)
+---
 
-memory optimized implmentation only reads from disk once and writes to it once everything else is done in memory
-optimized Implementation Single Threaded(local bare metal) 29.4 sec
-optimized Implementation Multithreaded(local bare metal)(8 Workers) 8.7 secs
+## 🧪 Benchmark Results
 
-super optimized implementation by eliminating wasm-bindgen overhead and manual memory management using raw pointers for zero-copy data transfer between host and WASM. This reduces runtime cost and improves performance in low-level WASI environments. This also eliminates the serialization, deseralization overhead.
+| Implementation                   | Mode                       | Time (sec) | Description                                       |
+| -------------------------------- | -------------------------- | ---------- | ------------------------------------------------- |
+| Naive                            | Single-threaded            | 30.3       | Disk I/O heavy, basic file-based processing       |
+| Naive                            | Multi-threaded (8 workers) | 9.8        | Parallelized disk-based processing (\~3× speedup) |
+| Optimized (in-memory)            | Single-threaded            | 29.4       | Reduced I/O, all tiles kept in memory             |
+| Optimized (in-memory)            | Multi-threaded (8 workers) | 8.7        | Faster parallel in-memory WASM tile filtering     |
+| Super Optimized (zero-copy WASM) | Single-threaded            | 24.73      | Raw pointer WASM, no serialization overhead       |
+| Super Optimized (zero-copy WASM) | Multi-threaded (8 workers) | 7.72       | Best performance: minimal I/O + zero-copy WASM    |
 
-super optimized Implementation Single Threaded(local bare metal) 24.73 sec
-super optimized Implementation Multi Threaded(local bare metal)(8 workers) 7.72 sec
+🧪 All benchmarks were run on an M3 MacBook Air with 16GB RAM.
 
-
-The tests were all done on M3 macbook air with 16GB RAM
+---
