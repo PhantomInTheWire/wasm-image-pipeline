@@ -5,7 +5,6 @@
 
 # Go
 /bin
-/pkg
 
 # Shared data
 /shared/output
