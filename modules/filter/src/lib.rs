@@ -120,3 +120,9 @@ pub unsafe extern "C" fn dealloc(ptr: *mut u8, size: usize) {
         let _ = Vec::from_raw_parts(ptr, 0, size);
     }
 }
+
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _start() {
+    process_stdin()
+}
