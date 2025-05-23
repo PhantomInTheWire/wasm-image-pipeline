@@ -121,6 +121,26 @@ pub unsafe extern "C" fn dealloc(ptr: *mut u8, size: usize) {
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn grayscale_nomral(input_path: String, output: String) {
+    // Read the input image
+    let img = match image::open(input_path) {
+        Ok(img) => img,
+        Err(e) => {
+            eprintln!("Failed to load image: {}", e);
+            return;
+        }
+    };
+
+    // Convert to grayscale
+    let gray = img.to_luma8();
+    let r#dyn = DynamicImage::ImageLuma8(gray);
+
+    // Save the output image
+    if let Err(e) = r#dyn.save(output) {
+        eprintln!("Failed to save image: {}", e);
+    }
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() {

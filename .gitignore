@@ -1,7 +1,6 @@
 
 # Rusttargetarget
 target/
-*.wasm
 
 # Go
 /bin
