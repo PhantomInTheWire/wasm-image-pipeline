@@ -147,6 +147,7 @@ pub extern "C" fn _start() {
     process_stdin()
 }
 
+#[unsafe(no_mangle)]
 pub extern "C" fn hello() {
     println!("Hello from WASM!");
 }
