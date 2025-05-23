@@ -146,3 +146,7 @@ pub extern "C" fn grayscale_nomral(input_path: String, output: String) {
 pub extern "C" fn _start() {
     process_stdin()
 }
+
+pub extern "C" fn hello() {
+    println!("Hello from WASM!");
+}
