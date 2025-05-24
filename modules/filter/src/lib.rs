@@ -146,10 +146,6 @@ pub extern "C" fn grayscale_nomral() {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn _start() {
-    grayscale_nomral()
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn hello() {

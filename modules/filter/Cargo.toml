@@ -13,5 +13,9 @@ image = "0.25.6"
 target = "wasm32-wasip1"
 
 [target.wasm32-wasip1]
-rustflags = ["-C", "target-feature=+simd128"]
+rustflags = ["-C", "link-self-contained=no", "target-feature=+simd128"]
 runner = "wasmedge"
+
+[[test]]
+name = "filter_wasi_integration"
+path = "tests/filter_wasi_integration.rs"
