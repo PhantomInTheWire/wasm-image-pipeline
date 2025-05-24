@@ -1,5 +1,19 @@
 use image::{DynamicImage, ImageFormat};
 use std::io::{Cursor, Read, Write};
+use clap::Parser;
+
+/// A simple program to grayscale images
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Input file path
+    #[arg(short, long)]
+    input: String,
+
+    /// Output file path
+    #[arg(short, long)]
+    output: String,
+}
 
 /// WASI/CLI entry point: read PNG from stdin, grayscale, write PNG to stdout.
 /// Processes a PNG image from stdin, converts it to grayscale, and writes the result to stdout.
@@ -122,9 +136,11 @@ pub unsafe extern "C" fn dealloc(ptr: *mut u8, size: usize) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn grayscale_nomral(input_path: String, output: String) {
+pub extern "C" fn grayscale_nomral() {
+    let args = Args::parse();
+
     // Read the input image
-    let img = match image::open(input_path) {
+    let img = match image::open(args.input) {
         Ok(img) => img,
         Err(e) => {
             eprintln!("Failed to load image: {}", e);
@@ -137,14 +153,14 @@ pub extern "C" fn grayscale_nomral(input_path: String, output: String) {
     let r#dyn = DynamicImage::ImageLuma8(gray);
 
     // Save the output image
-    if let Err(e) = r#dyn.save(output) {
+    if let Err(e) = r#dyn.save(args.output) {
         eprintln!("Failed to save image: {}", e);
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() {
-    process_stdin()
+    grayscale_nomral()
 }
 
 #[unsafe(no_mangle)]
