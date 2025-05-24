@@ -146,7 +146,6 @@ pub extern "C" fn grayscale_nomral() {
     }
 }
 
-
 #[unsafe(no_mangle)]
 pub extern "C" fn hello() {
     println!("Hello from WASM!");
