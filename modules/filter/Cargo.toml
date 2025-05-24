@@ -8,7 +8,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 image = "0.25.6"
-clap = { version = "4.0", features = ["derive"] }
 
 [package.metadata.wasm]
 target = "wasm32-wasip1"
