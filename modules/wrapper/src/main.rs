@@ -1,16 +1,16 @@
 use std::{
-    process::{Command, Stdio},
     fs::File,
     io::{self, Read},
+    process::{Command, Stdio},
 };
 
 fn main() -> io::Result<()> {
     let mut args = std::env::args().skip(1);
-    let wasm_path   = args.next().expect("Missing wasm module path");
-    let input_path  = args.next().expect("Missing input file path");
+    let wasm_path = args.next().expect("Missing wasm module path");
+    let input_path = args.next().expect("Missing input file path");
     let output_path = args.next().expect("Missing output file path");
 
-    let mut input  = File::open(&input_path)?;
+    let mut input = File::open(&input_path)?;
     let mut output = File::create(&output_path)?;
 
     let mut child = Command::new("wasmedge")
